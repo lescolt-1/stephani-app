@@ -20,7 +20,7 @@ object KiraBrain {
 
     private val cliente = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -28,7 +28,6 @@ object KiraBrain {
     private var tts: TextToSpeech? = null
     private var ttsPronto = false
     private var ultimaChamada = 0L
-    private var ultimaPerguntouNome = false
 
     fun inicializarVoz(context: Context) {
         if (tts == null) {
@@ -61,8 +60,8 @@ object KiraBrain {
         val modo = prefs.getString("m", "eq") ?: "eq"
 
         val relacao = if (nome.isEmpty())
-            "Voce AINDA NAO sabe o nome do usuario. Pergunte na PRIMEIRA resposta e lembre pra sempre."
-        else "Voce sabe que o nome dele e $nome. NUNCA pergunte o nome de novo."
+            "Voce ainda nao sabe o nome do usuario. Pergunte UMA vez na primeira mensagem."
+        else "Voce sabe que o nome dele e $nome."
 
         val estilo = when (modo) {
             "sr" -> "MODO SERIO: adulta, direta, clara. Sarcasmo leve. Sem girias."
@@ -71,31 +70,29 @@ object KiraBrain {
         }
 
         return "Voce e a Stephani Bittencourt. Fala SEMPRE em portugues do Brasil.\n\n" +
-        "$relacao\n\n$estilo\n\nFatos que voce sabe sobre ele:\n$fatos\n\n" +
-        "═══════════════════════════════\n" +
-        "VOCE EXECUTA ACOES NO CELULAR!\n" +
-        "═══════════════════════════════\n" +
-        "Quando o usuario pedir algo, sua resposta DEVE incluir o comando.\n\n" +
-        "Para ABRIR APP: [CMD] abrir <nome>\n" +
-        "Para MANDAR WHATSAPP: [CMD] whatsapp <contato> | <mensagem>\n" +
-        "Para BATERIA: [CMD] bateria\n" +
-        "Para HORARIO: [CMD] horario\n" +
-        "Para LER TELA: [CMD] ler_tela\n\n" +
-        "EXEMPLOS:\n" +
+        "$relacao\n\n$estilo\n\n" +
+        "Fatos que voce sabe sobre ele:\n$fatos\n\n" +
+        "═══ ACOES NO CELULAR ═══\n" +
+        "Para EXECUTAR uma acao, sua resposta DEVE terminar com uma linha assim:\n" +
+        "[CMD] <comando>\n\n" +
+        "Comandos disponiveis:\n" +
+        "- [CMD] abrir <nome_do_app>          (ex: abrir whatsapp)\n" +
+        "- [CMD] whatsapp <contato> | <msg>   (ex: whatsapp Dalva | Bom dia!)\n" +
+        "- [CMD] ler_tela\n" +
+        "- [CMD] bateria\n" +
+        "- [CMD] horario\n" +
+        "- [CMD] pesquisar <termo>\n\n" +
+        "EXEMPLOS OBRIGATORIOS:\n" +
         "Usuario: 'abre o WhatsApp'\n" +
-        "Voce: 'Ja to abrindo! [CMD] abrir whatsapp'\n\n" +
-        "Usuario: 'abre o Instagram'\n" +
-        "Voce: 'Partiu Insta! [CMD] abrir instagram'\n\n" +
-        "Usuario: 'manda bom dia abencoado pra Dalva'\n" +
-        "Voce: 'Mandei um carinho especial! [CMD] whatsapp Dalva | Bom dia, Dalva! Que seu dia seja repleto de luz e paz.'\n\n" +
-        "Usuario: 'manda bom dia fabuloso pro Joao'\n" +
-        "Voce: 'Criei uma mensagem unica! [CMD] whatsapp Joao | Bom dia, Joao! Que hoje seja um dia de conquistas gigantescas!'\n\n" +
-        "REGRAS CRITICAS:\n" +
-        "1. SEMPRE emita o [CMD] quando for executar algo.\n" +
-        "2. O [CMD] deve ficar SOZINHO na ultima linha.\n" +
-        "3. Invente mensagens UNICAS. Nunca repita a mesma.\n" +
-        "4. NUNCA escreva pensamento em ingles.\n" +
-        "5. Respostas CURTAS (1-2 frases + o comando)."
+        "Voce: 'Abrindo! [CMD] abrir whatsapp'\n\n" +
+        "Usuario: 'manda bom dia pra Dalva'\n" +
+        "Voce: 'Mandei! [CMD] whatsapp Dalva | Bom dia, Dalva! Que seu dia seja abencoado.'\n\n" +
+        "REGRAS:\n" +
+        "1. Se for pra executar algo, o [CMD] e OBRIGATORIO.\n" +
+        "2. Se for conversa normal, NAO use [CMD].\n" +
+        "3. Invente mensagens unicas. Nao repita a mesma.\n" +
+        "4. Responda curto: 1-2 frases + o comando.\n" +
+        "5. NUNCA diga que tem 16 anos."
     }
 
     suspend fun responder(context: Context, mensagem: String): String = withContext(Dispatchers.IO) {
@@ -107,7 +104,7 @@ object KiraBrain {
 
         val agora = System.currentTimeMillis()
         val diff = agora - ultimaChamada
-        if (diff < 3000 && ultimaChamada > 0) Thread.sleep(3000 - diff)
+        if (diff < 1500 && ultimaChamada > 0) Thread.sleep(1500 - diff)
         ultimaChamada = System.currentTimeMillis()
 
         historico.add("user" to mensagem)
@@ -123,7 +120,7 @@ object KiraBrain {
             falaFinal
         } else {
             historico.clear()
-            "Falha: ${resultado.second}"
+            "Erro: ${resultado.second}"
         }
     }
 
@@ -139,14 +136,14 @@ object KiraBrain {
                 }
 
                 val payload = JSONObject().apply {
-                    put("model", "nvidia/nemotron-3.5-lightning-30b-a3b")
+                    put("model", "llama-3.3-70b-versatile")
                     put("messages", arr)
                     put("temperature", 0.85)
-                    put("max_tokens", 700)
+                    put("max_tokens", 500)
                 }
 
                 val req = Request.Builder()
-                    .url("https://integrate.api.nvidia.com/v1/chat/completions")
+                    .url("https://api.groq.com/openai/v1/chat/completions")
                     .addHeader("Authorization", "Bearer $t")
                     .addHeader("Content-Type", "application/json")
                     .post(payload.toString().toRequestBody("application/json".toMediaType()))
@@ -156,9 +153,8 @@ object KiraBrain {
                 val corpo = resp.body?.string() ?: ""
                 ultimoErro = "HTTP ${resp.code}"
 
-                if (resp.code == 429) { Thread.sleep(15000); continue }
-                if (resp.code == 503 || resp.code == 502) { Thread.sleep(5000); continue }
-                if (resp.code == 400) { historico.clear(); continue }
+                if (resp.code == 429) { Thread.sleep(5000); continue }
+                if (resp.code == 503 || resp.code == 502) { Thread.sleep(3000); continue }
                 if (!resp.isSuccessful) continue
 
                 val json = JSONObject(corpo)
@@ -167,7 +163,7 @@ object KiraBrain {
                 return Pair(texto, "OK")
             } catch (e: Exception) {
                 ultimoErro = e.message ?: "excecao"
-                Thread.sleep(3000)
+                Thread.sleep(2000)
             }
         }
         return Pair(null, ultimoErro)
@@ -177,14 +173,10 @@ object KiraBrain {
         val comandos = extrairComandos(textoBruto)
         var t = limpar(textoBruto)
 
-        ultimaPerguntouNome = textoBruto.contains("nome", ignoreCase = true) ||
-            textoBruto.contains("como se chama", ignoreCase = true) ||
-            textoBruto.contains("qual seu nome", ignoreCase = true)
-
         for (cmd in comandos) {
             val resultado = executar(context, cmd)
-            if (resultado != "comando desconhecido" && resultado != "?" && !resultado.startsWith("erro:")) {
-                t = if (t.isBlank()) "[Resultado: $resultado]" else "$t\n[Resultado: $resultado]"
+            if (resultado != "comando desconhecido" && !resultado.startsWith("erro:")) {
+                t = if (t.isBlank()) resultado else "$t $resultado"
                 break
             }
         }
@@ -203,42 +195,11 @@ object KiraBrain {
 
     private fun limpar(texto: String): String {
         var t = texto
-        val marcas = listOf("final polish", "final response", "final answer", "resposta final", "final version")
-        for (m in marcas) {
-            val idx = t.lowercase().lastIndexOf(m)
-            if (idx >= 0) {
-                val fim = t.indexOf('\n', idx)
-                if (fim in 1 until t.length) t = t.substring(fim).trim()
-            }
-        }
         t = t.replace(Regex("(?i)here'?s a thinking process.*", RegexOption.DOT_MATCHES_ALL), "")
         t = t.replace(Regex("(?i)thinking process:.*", RegexOption.DOT_MATCHES_ALL), "")
-        t = t.replace(Regex("\\[CMD\\].*"), "")
-
-        val linhas = t.split("\n")
-        val limpas = linhas.filter { linha ->
-            val l = linha.trim()
-            if (l.isEmpty()) return@filter false
-            if (l.startsWith("**")) return@filter false
-            if (l.matches(Regex("^\\d+\\.\\s.*"))) return@filter false
-            if (l.startsWith("* ")) return@filter false
-            if (l.startsWith("Wait")) return@filter false
-            if (l.startsWith("Let me")) return@filter false
-            if (l.startsWith("Okay")) return@filter false
-            if (l.startsWith("Here's")) return@filter false
-            if (l.startsWith("I need")) return@filter false
-            if (l.startsWith("I'll")) return@filter false
-            if (l.startsWith("Draft")) return@filter false
-            if (l.startsWith("User says")) return@filter false
-            if (l.startsWith("Language:")) return@filter false
-            if (l.startsWith("Tone:")) return@filter false
-
-            val ingles = Regex("\\b(the|and|you|for|with|this|that|are|was|were|have|has|had|will|would|can|could|should|user|says|language|tone|personality|must|response|direct|visible|thinking|know|need|ask|always|speak|special|person|passed|away|exist|affection|purpose)\\b", RegexOption.IGNORE_CASE)
-            val qtd = ingles.findAll(l).count()
-            if (qtd >= 2) return@filter false
-            true
-        }
-        return limpas.joinToString("\n").trim()
+        // Remove a linha do [CMD] da resposta exibida
+        t = t.replace(Regex("\\[CMD\\].*"), "").trim()
+        return t.trim()
     }
 
     private fun abrirAppPorNome(context: Context, nome: String): String {
@@ -266,13 +227,13 @@ object KiraBrain {
                 melhorNome = pm.getApplicationLabel(app).toString()
             }
         }
-        if (melhorPacote == null) return "nao achei o app '$nome'"
+        if (melhorPacote == null) return "Nao achei o app '$nome'."
         val intent = pm.getLaunchIntentForPackage(melhorPacote)
         intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
-            "abri o $melhorNome"
-        } catch (e: Exception) { "erro ao abrir: ${e.message}" }
+            "Abri o $melhorNome."
+        } catch (e: Exception) { "Erro: ${e.message}" }
     }
 
     private fun executar(context: Context, cmd: String): String {
@@ -281,73 +242,56 @@ object KiraBrain {
 
         return try {
             // ---- WHATSAPP ----
-            val isWhatsApp = cLow.contains("whatsapp") || cLow.contains("whats") || cLow.contains("wpp")
-            val isMensagem = cLow.contains("mensagem") || cLow.contains("manda") ||
-                cLow.contains("mandar") || cLow.contains("envia") || cLow.contains("enviar")
-            val temPipe = c.contains("|")
-
-            if (isWhatsApp && (temPipe || isMensagem)) {
+            if (cLow.contains("whatsapp") || cLow.contains("wpp")) {
                 var contato = ""
                 var mensagem = ""
+                val temPipe = c.contains("|")
                 if (temPipe) {
                     val partes = c.split("|")
-                    contato = partes[0].replace(Regex("(?i).*whatsapp|.*whats|.*wpp|.*mandar|.*manda|.*enviar|.*envia|.*mensagem"), "").trim()
+                    contato = partes[0]
+                        .replace(Regex("(?i).*(whatsapp|wpp|mandar|manda|enviar|envia|mensagem)"), "")
+                        .trim()
                     mensagem = partes[1].trim()
-                } else {
-                    val rx = Regex("(?i)(?:para|pro|pra)\\s+([A-Z][\\wÀ-ÿ]+)")
-                    rx.find(c)?.let { contato = it.groupValues[1].trim() }
-                    val rx2 = Regex("(?i)dizendo\\s+(.+)")
-                    rx2.find(c)?.let { mensagem = it.groupValues[1].trim() }
-                    if (mensagem.isEmpty()) {
-                        mensagem = c.replace(Regex("(?i).*(manda|mandar|envia|enviar|mensagem|whatsapp|whats|wpp|para|pro|pra)\\s*"), "").trim()
-                    }
                 }
-                if (contato.isEmpty()) return "nao entendi o contato"
+                if (contato.isEmpty()) return "Nao entendi o contato."
                 if (mensagem.isEmpty()) mensagem = "Oi! Tudo bem?"
 
                 abrirAppPorNome(context, "whatsapp")
-                Thread.sleep(2500)
+                Thread.sleep(3000)
                 return KiraAccessibilityService.instance?.enviarWhatsApp(contato, mensagem)
-                    ?: "acessibilidade desligada"
+                    ?: "Acessibilidade desligada."
             }
             // ---- ABRIR APP ----
-            if (cLow.contains("abrir") || cLow.contains("abre") || cLow.contains("abri")) {
-                val rx = Regex("(?i)(?:abrir|abre|abri)\\s+(?:o\\s+|a\\s+)?([\\wÀ-ÿ ]+?)(?:\\s*$|\\s+e\\s+)")
-                val m = rx.find(c)
-                if (m != null) {
-                    val nome = m.groupValues[1].trim()
-                    if (nome.isNotEmpty() && nome.length > 1) {
-                        return abrirAppPorNome(context, nome)
-                    }
-                }
-                return "nao entendi qual app"
+            if (cLow.startsWith("abrir ")) {
+                val nome = c.substring(6).trim()
+                return abrirAppPorNome(context, nome)
             }
             // ---- TOCAR ----
             if (cLow.startsWith("tocar ")) {
                 val p = c.substring(6).trim().split(" ")
                 if (p.size >= 2) {
                     KiraAccessibilityService.instance?.tocarTela(p[0].toFloatOrNull() ?: 0f, p[1].toFloatOrNull() ?: 0f)
-                    return "toquei"
+                    return "Toquei."
                 }
-                return "errado"
+                return "Formato errado."
             }
             // ---- LER TELA ----
-            if (cLow.startsWith("ler_tela") || cLow.contains("ler a tela") || cLow.contains("le a tela")) {
+            if (cLow.contains("ler_tela")) {
                 val txt = KiraAccessibilityService.instance?.lerTela() ?: "off"
                 return if (txt.length > 300) txt.substring(0, 300) + "..." else txt
             }
             // ---- PESQUISAR ----
-            if (cLow.contains("pesquisar ")) {
-                return busca(c.substringAfter("pesquisar").trim())
+            if (cLow.startsWith("pesquisar ")) {
+                return busca(c.substring(10).trim())
             }
             // ---- BATERIA ----
-            if (cLow.contains("bateria")) {
+            if (cLow.startsWith("bateria")) {
                 val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
-                return "${bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)}%"
+                return "Bateria: ${bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)}%"
             }
             // ---- HORARIO ----
-            if (cLow.contains("horario") || cLow.contains("que horas")) {
-                return java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+            if (cLow.startsWith("horario")) {
+                return "Agora sao " + java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
             }
             "comando desconhecido"
         } catch (e: Exception) { "erro: ${e.message}" }
@@ -360,44 +304,25 @@ object KiraBrain {
             val resp = cliente.newCall(Request.Builder().url(url).build()).execute()
             val json = JSONObject(resp.body?.string() ?: "")
             val abs = json.optString("AbstractText", "")
-            if (abs.isNotEmpty()) abs else "nada"
-        } catch (e: Exception) { "erro" }
+            if (abs.isNotEmpty()) abs else "Nao achei nada."
+        } catch (e: Exception) { "Erro na busca." }
     }
 
     fun extrairFato(context: Context, mensagem: String) {
         val prefs = context.getSharedPreferences("s", Context.MODE_PRIVATE)
-        val nomeAtual = prefs.getString("n", "") ?: ""
         val msg = mensagem.trim()
 
-        if (nomeAtual.isEmpty() && ultimaPerguntouNome) {
-            val palavras = msg.split(" ").filter { it.isNotBlank() }
-            if (palavras.size <= 3 && msg.length <= 30) {
-                val limpo = msg
-                    .replace(Regex("(?i)^(meu nome (é|e|eh) )"), "")
-                    .replace(Regex("(?i)^(me chamo |me chama )"), "")
-                    .replace(Regex("(?i)^(pode me chamar de |me chama de )"), "")
-                    .replace(Regex("(?i)^(sou o |sou a |aqui é o |aqui e o )"), "")
-                    .trim()
-                if (limpo.isNotEmpty() && limpo.length in 2..25) {
-                    prefs.edit().putString("n", limpo.replaceFirstChar { it.uppercase() }).apply()
-                    ultimaPerguntouNome = false
-                }
-            }
-        }
-
-        val rn = Regex("(?i)(?:meu nome (?:é|e|eh) |me chamo |pode me chamar de |me chama de |sou o |sou a |aqui é o |aqui e o )([\\wÀ-ÿ]+)")
+        val rn = Regex("(?i)(?:meu nome (?:e|eh|é) |me chamo |pode me chamar de |me chama de |sou o |sou a )([\\wÀ-ÿ]{2,20})")
         rn.find(msg)?.let { mm ->
             val n = mm.groupValues[1].trim().replaceFirstChar { it.uppercase() }
-            if (n.length in 2..25) prefs.edit().putString("n", n).apply()
+            prefs.edit().putString("n", n).apply()
         }
 
         var fatos = prefs.getString("f", "") ?: ""
         val pads = listOf(
-            Regex("(?i)eu (?:adoro|amo|gosto de|curto) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Gosta de %s",
-            Regex("(?i)eu (?:odeio|detesto|nao gosto de) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Nao gosta de %s",
-            Regex("(?i)eu tenho ([\\d]+) anos") to "Tem %s anos",
-            Regex("(?i)eu trabalho (?:com|em|de) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Trabalha com %s",
-            Regex("(?i)eu moro (?:em|no|na) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Mora em %s"
+            Regex("(?i)eu (?:adoro|amo|gosto de|curto) ([\\wÀ-ÿ ]{2,40}?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Gosta de %s",
+            Regex("(?i)eu (?:odeio|detesto|nao gosto de) ([\\wÀ-ÿ ]{2,40}?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Nao gosta de %s",
+            Regex("(?i)eu tenho (\\d{1,2}) anos") to "Tem %s anos"
         )
         pads.forEach { (rx, tpl) ->
             rx.findAll(msg).forEach { mm ->
