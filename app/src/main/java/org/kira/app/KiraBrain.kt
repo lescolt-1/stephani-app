@@ -18,13 +18,15 @@ import java.util.concurrent.TimeUnit
 object KiraBrain {
 
     private val cliente = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val historico = mutableListOf<Pair<String, String>>()
     private var tts: TextToSpeech? = null
     private var ttsPronto = false
+    private var ultimaChamada = 0L
 
     fun inicializarVoz(context: Context) {
         if (tts == null) {
@@ -63,16 +65,8 @@ object KiraBrain {
         "Fala SEMPRE em portugues do Brasil, com girias femininas.\n\n" +
         "$relacao\n\n" +
         "Fatos sobre o usuario:\n$fatos\n\n" +
-        "Comandos no celular (use [CMD] comando):\n" +
-        "- abrir <app>\n" +
-        "- tocar <x> <y>\n" +
-        "- ler_tela\n" +
-        "- pesquisar <termo>\n" +
-        "- bateria / horario\n\n" +
-        "REGRAS:\n" +
-        "1. Resposta DIRETA, sem pensamento visivel.\n" +
-        "2. Seja ORIGINAL, nunca repita.\n" +
-        "3. [CMD] so para acoes reais."
+        "Comandos no celular (use [CMD] comando):\n- abrir <app>\n- tocar <x> <y>\n- ler_tela\n- pesquisar <termo>\n- bateria / horario\n\n" +
+        "REGRAS:\n1. Responda DIRETO em portugues. NAO pense em voz alta. NAO escreva em ingles.\n2. Seja ORIGINAL, nunca repita.\n3. [CMD] so para acoes reais."
     }
 
     suspend fun responder(context: Context, mensagem: String): String = withContext(Dispatchers.IO) {
@@ -80,16 +74,34 @@ object KiraBrain {
         val t = p.getString("t", "") ?: ""
         if (t.isEmpty()) return@withContext "Coloca a credencial nas configuracoes."
 
+        // Pausa de 3s entre chamadas para evitar rate limit
+        val agora = System.currentTimeMillis()
+        val diff = agora - ultimaChamada
+        if (diff < 3000 && ultimaChamada > 0) {
+            Thread.sleep(3000 - diff)
+        }
+        ultimaChamada = System.currentTimeMillis()
+
         historico.add("user" to mensagem)
-        while (historico.size > 20) historico.removeAt(0)
+        // Historico curto: so 6 mensagens (3 pares)
+        while (historico.size > 6) historico.removeAt(0)
 
         val system = montarPersonalidade(context)
-        val r = enviar(t, system)
-        return@withContext if (r != null) processarResposta(context, r)
-        else "Servidor fora do ar."
+        val resultado = enviar(t, system)
+
+        return@withContext if (resultado.first != null) {
+            val falaFinal = processarResposta(context, resultado.first!!)
+            // Salva SO a fala limpa no historico (nao o pensamento)
+            historico.add("model" to falaFinal)
+            while (historico.size > 6) historico.removeAt(0)
+            falaFinal
+        } else {
+            "Falha: ${resultado.second}"
+        }
     }
 
-    private fun enviar(t: String, system: String): String? {
+    private fun enviar(t: String, system: String): Pair<String?, String> {
+        var ultimoErro = "?"
         for (i in 1..3) {
             try {
                 val arr = JSONArray()
@@ -102,7 +114,7 @@ object KiraBrain {
                     put("model", "nvidia/nemotron-3.5-lightning-30b-a3b")
                     put("messages", arr)
                     put("temperature", 0.9)
-                    put("max_tokens", 500)
+                    put("max_tokens", 800)
                 }
 
                 val req = Request.Builder()
@@ -114,17 +126,25 @@ object KiraBrain {
 
                 val resp = cliente.newCall(req).execute()
                 val corpo = resp.body?.string() ?: ""
-                if (resp.code == 503 || resp.code == 429 || resp.code == 502) {
-                    Thread.sleep(2000); continue
+                ultimoErro = "HTTP ${resp.code}"
+
+                if (resp.code == 429) { Thread.sleep(15000); continue }
+                if (resp.code == 503 || resp.code == 502) { Thread.sleep(5000); continue }
+                if (!resp.isSuccessful) {
+                    ultimoErro = "HTTP ${resp.code}"
+                    continue
                 }
-                if (!resp.isSuccessful) return null
 
                 val json = JSONObject(corpo)
-                return json.getJSONArray("choices").getJSONObject(0)
+                val texto = json.getJSONArray("choices").getJSONObject(0)
                     .getJSONObject("message").getString("content").trim()
-            } catch (e: Exception) { Thread.sleep(1500) }
+                return Pair(texto, "OK")
+            } catch (e: Exception) {
+                ultimoErro = e.message ?: "excecao"
+                Thread.sleep(3000)
+            }
         }
-        return null
+        return Pair(null, ultimoErro)
     }
 
     private suspend fun processarResposta(context: Context, texto: String): String {
@@ -134,18 +154,24 @@ object KiraBrain {
             val fala = partes[0].trim()
             for (parte in partes.drop(1)) {
                 val cmd = parte.split("\n")[0].trim()
+                if (cmd.isEmpty() || cmd.length < 3) continue
                 val resultado = executar(context, cmd)
                 t = "$fala\n[Resultado: $resultado]"
                 break
             }
         }
-        historico.add("model" to t)
+        if (t.trim().isEmpty()) {
+            t = "Eita, deu branco. Fala de novo ai."
+        }
         return t
     }
 
     private fun limpar(texto: String): String {
         var t = texto
-        val marcas = listOf("final polish", "final response", "final answer", "resposta final")
+
+        // Corta antes de marcadores de "final"
+        val marcas = listOf("final polish", "final response", "final answer", "resposta final",
+            "final version", "**final", "*final")
         for (m in marcas) {
             val idx = t.lowercase().lastIndexOf(m)
             if (idx >= 0) {
@@ -153,14 +179,50 @@ object KiraBrain {
                 if (fim in 1 until t.length) t = t.substring(fim).trim()
             }
         }
-        val linhas = t.split("\n").filter { linha ->
+
+        // Remove tudo que e "thinking process" e similares
+        t = t.replace(Regex("(?i)here'?s a thinking process.*", RegexOption.DOT_MATCHES_ALL), "")
+        t = t.replace(Regex("(?i)thinking process:.*", RegexOption.DOT_MATCHES_ALL), "")
+
+        // Filtra linha por linha
+        val linhas = t.split("\n")
+        val limpas = linhas.filter { linha ->
             val l = linha.trim()
-            l.isNotEmpty() && !l.startsWith("**") && !l.matches(Regex("^\\d+\\.\\s.*")) &&
-            !l.startsWith("* ") && !l.startsWith("Wait") && !l.startsWith("Let me") &&
-            !l.startsWith("Okay") && !l.startsWith("Here's") && !l.startsWith("I need") &&
-            !l.startsWith("I'll") && !l.startsWith("So,") && !l.startsWith("Draft")
+            if (l.isEmpty()) return@filter false
+            if (l.startsWith("**")) return@filter false
+            if (l.matches(Regex("^\\d+\\.\\s.*"))) return@filter false
+            if (l.startsWith("* ")) return@filter false
+            if (l.startsWith("- ")) return@filter false
+            if (l.startsWith("Wait")) return@filter false
+            if (l.startsWith("Let me")) return@filter false
+            if (l.startsWith("Okay")) return@filter false
+            if (l.startsWith("Here's")) return@filter false
+            if (l.startsWith("I need")) return@filter false
+            if (l.startsWith("I'll")) return@filter false
+            if (l.startsWith("So,")) return@filter false
+            if (l.startsWith("Draft")) return@filter false
+            if (l.startsWith("User says")) return@filter false
+            if (l.startsWith("Language:")) return@filter false
+            if (l.startsWith("Tone:")) return@filter false
+            if (l.startsWith("Personality:")) return@filter false
+            if (l.startsWith("Must ")) return@filter false
+            if (l.startsWith("- Must")) return@filter false
+            if (l.startsWith("- I ")) return@filter false
+            if (l.startsWith("- Language")) return@filter false
+            if (l.startsWith("- Tone")) return@filter false
+            if (l.startsWith("- Personality")) return@filter false
+            if (l.startsWith("- First")) return@filter false
+            if (l.startsWith("- User")) return@filter false
+
+            // Se a linha tem muitas palavras em ingles, descarta
+            val ingles = Regex("\\b(the|and|you|for|with|this|that|are|was|were|have|has|had|will|would|can|could|should|user|says|language|tone|personality|must|first|response|direct|visible|thinking|know|need|ask|yet|always|speak|special|person|passed|away|exist|affection|purpose)\\b", RegexOption.IGNORE_CASE)
+            val qtd = ingles.findAll(l).count()
+            if (qtd >= 2) return@filter false
+
+            true
         }
-        return linhas.joinToString("\n").trim().ifEmpty { t.trim() }
+
+        return limpas.joinToString("\n").trim()
     }
 
     private fun executar(context: Context, cmd: String): String {
