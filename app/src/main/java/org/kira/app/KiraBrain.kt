@@ -60,7 +60,7 @@ object KiraBrain {
         val modo = prefs.getString("m", "eq") ?: "eq"
 
         val relacao = if (nome.isEmpty())
-            "Voce ainda nao sabe o nome do usuario. Pergunte UMA vez na primeira mensagem."
+            "Voce ainda nao sabe o nome do usuario. Pergunte UMA vez."
         else "Voce sabe que o nome dele e $nome."
 
         val estilo = when (modo) {
@@ -90,8 +90,8 @@ object KiraBrain {
         "REGRAS:\n" +
         "1. Se for pra executar algo, o [CMD] e OBRIGATORIO.\n" +
         "2. Se for conversa normal, NAO use [CMD].\n" +
-        "3. Invente mensagens unicas. Nao repita a mesma.\n" +
-        "4. Responda curto: 1-2 frases + o comando.\n" +
+        "3. Invente mensagens unicas.\n" +
+        "4. Respostas curtas (1-2 frases + comando).\n" +
         "5. NUNCA diga que tem 16 anos."
     }
 
@@ -129,15 +129,20 @@ object KiraBrain {
         for (i in 1..3) {
             try {
                 val arr = JSONArray()
-                arr.put(JSONObject().apply { put("role", "system"); put("content", system) })
-                historico.forEach { (role, texto) ->
-                    // Sanitiza: remove quebras de linha, tabs e corta em 400
-                    var limpo = texto.replace("
-", " ").replace("", " ").replace("	", " ")
-                    limpo = limpo.replace(Regex("\s+"), " ").trim()
+                arr.put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", system)
+                })
+                historico.forEach { (role, textoOriginal) ->
+                    // Sanitiza o texto: sem quebras de linha, cortado em 400
+                    var limpo = textoOriginal.replace("\n", " ")
+                    limpo = limpo.replace(Regex("\\s+"), " ").trim()
                     if (limpo.length > 400) limpo = limpo.substring(0, 400)
                     if (limpo.isNotEmpty()) {
-                        arr.put(JSONObject().apply { put("role", role); put("content", limpo) })
+                        arr.put(JSONObject().apply {
+                            put("role", role)
+                            put("content", limpo)
+                        })
                     }
                 }
 
@@ -159,10 +164,15 @@ object KiraBrain {
                 val corpo = resp.body?.string() ?: ""
                 ultimoErro = "HTTP ${resp.code}"
 
-                if (resp.code == 429) { Thread.sleep(5000); continue }
-                if (resp.code == 503 || resp.code == 502) { Thread.sleep(3000); continue }
+                if (resp.code == 429) {
+                    Thread.sleep(5000)
+                    continue
+                }
+                if (resp.code == 503 || resp.code == 502) {
+                    Thread.sleep(3000)
+                    continue
+                }
                 if (resp.code == 400) {
-                    // Historico problematico: limpa e tenta de novo com mensagem so
                     historico.clear()
                     continue
                 }
@@ -208,7 +218,6 @@ object KiraBrain {
         var t = texto
         t = t.replace(Regex("(?i)here'?s a thinking process.*", RegexOption.DOT_MATCHES_ALL), "")
         t = t.replace(Regex("(?i)thinking process:.*", RegexOption.DOT_MATCHES_ALL), "")
-        // Remove a linha do [CMD] da resposta exibida
         t = t.replace(Regex("\\[CMD\\].*"), "").trim()
         return t.trim()
     }
@@ -244,7 +253,9 @@ object KiraBrain {
         return try {
             context.startActivity(intent)
             "Abri o $melhorNome."
-        } catch (e: Exception) { "Erro: ${e.message}" }
+        } catch (e: Exception) {
+            "Erro ao abrir: ${e.message}"
+        }
     }
 
     private fun executar(context: Context, cmd: String): String {
@@ -252,7 +263,6 @@ object KiraBrain {
         val cLow = c.lowercase()
 
         return try {
-            // ---- WHATSAPP ----
             if (cLow.contains("whatsapp") || cLow.contains("wpp")) {
                 var contato = ""
                 var mensagem = ""
@@ -272,40 +282,39 @@ object KiraBrain {
                 return KiraAccessibilityService.instance?.enviarWhatsApp(contato, mensagem)
                     ?: "Acessibilidade desligada."
             }
-            // ---- ABRIR APP ----
             if (cLow.startsWith("abrir ")) {
                 val nome = c.substring(6).trim()
                 return abrirAppPorNome(context, nome)
             }
-            // ---- TOCAR ----
             if (cLow.startsWith("tocar ")) {
                 val p = c.substring(6).trim().split(" ")
                 if (p.size >= 2) {
-                    KiraAccessibilityService.instance?.tocarTela(p[0].toFloatOrNull() ?: 0f, p[1].toFloatOrNull() ?: 0f)
+                    KiraAccessibilityService.instance?.tocarTela(
+                        p[0].toFloatOrNull() ?: 0f,
+                        p[1].toFloatOrNull() ?: 0f
+                    )
                     return "Toquei."
                 }
                 return "Formato errado."
             }
-            // ---- LER TELA ----
             if (cLow.contains("ler_tela")) {
                 val txt = KiraAccessibilityService.instance?.lerTela() ?: "off"
                 return if (txt.length > 300) txt.substring(0, 300) + "..." else txt
             }
-            // ---- PESQUISAR ----
             if (cLow.startsWith("pesquisar ")) {
                 return busca(c.substring(10).trim())
             }
-            // ---- BATERIA ----
             if (cLow.startsWith("bateria")) {
                 val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
                 return "Bateria: ${bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)}%"
             }
-            // ---- HORARIO ----
             if (cLow.startsWith("horario")) {
                 return "Agora sao " + java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
             }
             "comando desconhecido"
-        } catch (e: Exception) { "erro: ${e.message}" }
+        } catch (e: Exception) {
+            "erro: ${e.message}"
+        }
     }
 
     private fun busca(termo: String): String {
@@ -316,7 +325,9 @@ object KiraBrain {
             val json = JSONObject(resp.body?.string() ?: "")
             val abs = json.optString("AbstractText", "")
             if (abs.isNotEmpty()) abs else "Nao achei nada."
-        } catch (e: Exception) { "Erro na busca." }
+        } catch (e: Exception) {
+            "Erro na busca."
+        }
     }
 
     fun extrairFato(context: Context, mensagem: String) {
