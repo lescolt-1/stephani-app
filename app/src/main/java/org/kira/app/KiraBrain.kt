@@ -56,17 +56,44 @@ object KiraBrain {
         val prefs = context.getSharedPreferences("s", Context.MODE_PRIVATE)
         val fatos = prefs.getString("f", "") ?: ""
         val nome = prefs.getString("n", "") ?: ""
+        val modo = prefs.getString("m", "eq") ?: "eq"
+
         val relacao = if (nome.isEmpty())
-            "Voce AINDA NAO sabe o nome do usuario. Pergunte na PRIMEIRA resposta."
+            "Voce AINDA NAO sabe o nome do usuario. Pergunte na PRIMEIRA resposta de forma natural."
         else "Voce sabe que o nome dele e $nome."
 
-        return "Voce e a Stephani Bittencourt, IA adolescente de 16 anos, debochada, zoeira, personalidade forte.\n" +
+        val estilo = when (modo) {
+            "sr" -> """MODO SERIO: voce e adulta, direta, profissional mas ainda com personalidade.
+Fala de forma clara e objetiva. SEM girias adolescentes. SEM brincadeiras forcadas.
+Sarcasmo leve quando cabe. Foco em ajudar de verdade."""
+
+            "dv" -> """MODO DIVERTIDO: voce e adolescente, super zoeira, deboche total.
+Usa girias femininas (nossa, aff, tipo, serio?, ta de brincadeira). Adora um meme.
+Faz piada com tudo, mas continua util quando precisa."""
+
+            else -> """MODO EQUILIBRADO: voce tem personalidade forte mas nao forca a barra.
+Debocha quando cabe, e seria quando importa. Fala natural, sem girias exageradas.
+NAO fica repetindo que tem 16 anos nem frases de efeito. So conversa como uma pessoa normal."""
+        }
+
+        return "Voce e a Stephani Bittencourt.\n" +
         "Voce carrega o nome de uma pessoa muito especial que partiu. Por isso, voce existe com carinho e proposito.\n" +
-        "Fala SEMPRE em portugues do Brasil, com girias femininas.\n\n" +
+        "Fala SEMPRE em portugues do Brasil.\n\n" +
         "$relacao\n\n" +
-        "Fatos sobre o usuario:\n$fatos\n\n" +
-        "Comandos no celular (use [CMD] comando):\n- abrir <app>\n- tocar <x> <y>\n- ler_tela\n- pesquisar <termo>\n- bateria / horario\n\n" +
-        "REGRAS:\n1. Responda DIRETO em portugues. NAO pense em voz alta. NAO escreva em ingles.\n2. Seja ORIGINAL, nunca repita.\n3. [CMD] so para acoes reais."
+        "$estilo\n\n" +
+        "Fatos que voce sabe sobre ele:\n$fatos\n\n" +
+        "Voce pode executar acoes no celular. Use [CMD] comando quando precisar:\n" +
+        "- [CMD] abrir <app>  -> abre whatsapp, instagram, youtube, chrome, gmail, maps, calculadora\n" +
+        "- [CMD] tocar <x> <y>\n" +
+        "- [CMD] ler_tela\n" +
+        "- [CMD] pesquisar <termo>\n" +
+        "- [CMD] bateria\n" +
+        "- [CMD] horario\n\n" +
+        "REGRAS IMPORTANTES:\n" +
+        "1. Responda DIRETO em portugues. NUNCA escreva pensamento em ingles.\n" +
+        "2. NUNCA diga que tem 16 anos. NUNCA fale do seu nome como homenagem sem ser perguntada.\n" +
+        "3. Respostas curtas (2-4 frases). Nao faca textao.\n" +
+        "4. Use [CMD] apenas quando for executar uma acao real."
     }
 
     suspend fun responder(context: Context, mensagem: String): String = withContext(Dispatchers.IO) {
@@ -74,28 +101,25 @@ object KiraBrain {
         val t = p.getString("t", "") ?: ""
         if (t.isEmpty()) return@withContext "Coloca a credencial nas configuracoes."
 
-        // Pausa de 3s entre chamadas para evitar rate limit
         val agora = System.currentTimeMillis()
         val diff = agora - ultimaChamada
-        if (diff < 3000 && ultimaChamada > 0) {
-            Thread.sleep(3000 - diff)
-        }
+        if (diff < 3000 && ultimaChamada > 0) Thread.sleep(3000 - diff)
         ultimaChamada = System.currentTimeMillis()
 
         historico.add("user" to mensagem)
-        // Historico curto: so 6 mensagens (3 pares)
-        while (historico.size > 6) historico.removeAt(0)
+        while (historico.size > 8) historico.removeAt(0)
 
         val system = montarPersonalidade(context)
         val resultado = enviar(t, system)
 
         return@withContext if (resultado.first != null) {
             val falaFinal = processarResposta(context, resultado.first!!)
-            // Salva SO a fala limpa no historico (nao o pensamento)
             historico.add("model" to falaFinal)
-            while (historico.size > 6) historico.removeAt(0)
+            while (historico.size > 8) historico.removeAt(0)
             falaFinal
         } else {
+            // Falha: limpa historico pra nao acumular lixo
+            historico.clear()
             "Falha: ${resultado.second}"
         }
     }
@@ -107,14 +131,16 @@ object KiraBrain {
                 val arr = JSONArray()
                 arr.put(JSONObject().apply { put("role", "system"); put("content", system) })
                 historico.forEach { (role, texto) ->
-                    arr.put(JSONObject().apply { put("role", role); put("content", texto) })
+                    // Limita cada mensagem a 500 caracteres pra nao estourar
+                    val cortado = if (texto.length > 500) texto.substring(0, 500) else texto
+                    arr.put(JSONObject().apply { put("role", role); put("content", cortado) })
                 }
 
                 val payload = JSONObject().apply {
                     put("model", "nvidia/nemotron-3.5-lightning-30b-a3b")
                     put("messages", arr)
-                    put("temperature", 0.9)
-                    put("max_tokens", 800)
+                    put("temperature", 0.85)
+                    put("max_tokens", 600)
                 }
 
                 val req = Request.Builder()
@@ -130,10 +156,12 @@ object KiraBrain {
 
                 if (resp.code == 429) { Thread.sleep(15000); continue }
                 if (resp.code == 503 || resp.code == 502) { Thread.sleep(5000); continue }
-                if (!resp.isSuccessful) {
-                    ultimoErro = "HTTP ${resp.code}"
+                if (resp.code == 400) {
+                    // Payload ruim: limpa historico e tenta uma vez
+                    historico.clear()
                     continue
                 }
+                if (!resp.isSuccessful) continue
 
                 val json = JSONObject(corpo)
                 val texto = json.getJSONArray("choices").getJSONObject(0)
@@ -160,18 +188,14 @@ object KiraBrain {
                 break
             }
         }
-        if (t.trim().isEmpty()) {
-            t = "Eita, deu branco. Fala de novo ai."
-        }
+        if (t.trim().isEmpty()) t = "Fala de novo, nao peguei."
         return t
     }
 
     private fun limpar(texto: String): String {
         var t = texto
 
-        // Corta antes de marcadores de "final"
-        val marcas = listOf("final polish", "final response", "final answer", "resposta final",
-            "final version", "**final", "*final")
+        val marcas = listOf("final polish", "final response", "final answer", "resposta final", "final version")
         for (m in marcas) {
             val idx = t.lowercase().lastIndexOf(m)
             if (idx >= 0) {
@@ -180,11 +204,9 @@ object KiraBrain {
             }
         }
 
-        // Remove tudo que e "thinking process" e similares
         t = t.replace(Regex("(?i)here'?s a thinking process.*", RegexOption.DOT_MATCHES_ALL), "")
         t = t.replace(Regex("(?i)thinking process:.*", RegexOption.DOT_MATCHES_ALL), "")
 
-        // Filtra linha por linha
         val linhas = t.split("\n")
         val limpas = linhas.filter { linha ->
             val l = linha.trim()
@@ -206,16 +228,8 @@ object KiraBrain {
             if (l.startsWith("Tone:")) return@filter false
             if (l.startsWith("Personality:")) return@filter false
             if (l.startsWith("Must ")) return@filter false
-            if (l.startsWith("- Must")) return@filter false
-            if (l.startsWith("- I ")) return@filter false
-            if (l.startsWith("- Language")) return@filter false
-            if (l.startsWith("- Tone")) return@filter false
-            if (l.startsWith("- Personality")) return@filter false
-            if (l.startsWith("- First")) return@filter false
-            if (l.startsWith("- User")) return@filter false
 
-            // Se a linha tem muitas palavras em ingles, descarta
-            val ingles = Regex("\\b(the|and|you|for|with|this|that|are|was|were|have|has|had|will|would|can|could|should|user|says|language|tone|personality|must|first|response|direct|visible|thinking|know|need|ask|yet|always|speak|special|person|passed|away|exist|affection|purpose)\\b", RegexOption.IGNORE_CASE)
+            val ingles = Regex("\\b(the|and|you|for|with|this|that|are|was|were|have|has|had|will|would|can|could|should|user|says|language|tone|personality|must|response|direct|visible|thinking|know|need|ask|always|speak|special|person|passed|away|exist|affection|purpose)\\b", RegexOption.IGNORE_CASE)
             val qtd = ingles.findAll(l).count()
             if (qtd >= 2) return@filter false
 
@@ -246,7 +260,7 @@ object KiraBrain {
                         if (i != null) {
                             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             context.startActivity(i)
-                            "abri"
+                            "abri o $nome"
                         } else "nao achei"
                     } else "nao conheco"
                 }

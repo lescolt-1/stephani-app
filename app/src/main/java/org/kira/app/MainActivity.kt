@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
@@ -19,8 +20,24 @@ class MainActivity : AppCompatActivity() {
         val e = findViewById<EditText>(R.id.tokenInput)
         e.setText(p.getString("t", ""))
 
+        // Carrega o modo salvo
+        val modoAtual = p.getString("m", "eq") ?: "eq"
+        when (modoAtual) {
+            "sr" -> findViewById<RadioButton>(R.id.modoSerio).isChecked = true
+            "dv" -> findViewById<RadioButton>(R.id.modoDivertido).isChecked = true
+            else -> findViewById<RadioButton>(R.id.modoEquilibrado).isChecked = true
+        }
+
         findViewById<Button>(R.id.salvarButton).setOnClickListener {
-            p.edit().putString("t", e.text.toString().trim()).apply()
+            val modo = when {
+                findViewById<RadioButton>(R.id.modoSerio).isChecked -> "sr"
+                findViewById<RadioButton>(R.id.modoDivertido).isChecked -> "dv"
+                else -> "eq"
+            }
+            p.edit()
+                .putString("t", e.text.toString().trim())
+                .putString("m", modo)
+                .apply()
             Toast.makeText(this, "Salvo!", Toast.LENGTH_SHORT).show()
         }
 
@@ -35,7 +52,11 @@ class MainActivity : AppCompatActivity() {
             }
             val s = Intent(this, KiraOverlayService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(s) else startService(s)
-            moveTaskToBack(true)
+            moveToBack()
         }
+    }
+
+    private fun moveToBack() {
+        moveTaskToBack(true)
     }
 }

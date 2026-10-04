@@ -1,18 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
     android:background="#1A1A1A">
 
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="STEPHANI" android:textColor="#00E5B0" android:textSize="36sp"
-        android:textStyle="bold" android:gravity="center" android:layout_marginTop="40dp"/>
+        android:text="STEPHANI" android:textColor="#00E5B0" android:textSize="34sp"
+        android:textStyle="bold" android:gravity="center" android:layout_marginTop="30dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="Sua assistente pessoal" android:textColor="#888888"
-        android:textSize="14sp" android:gravity="center" android:layout_marginBottom="40dp"/>
+        android:textSize="14sp" android:gravity="center" android:layout_marginBottom="24dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="Credencial:" android:textColor="#FFFFFF"
@@ -21,15 +25,39 @@
     <EditText android:id="@+id/tokenInput" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:hint="Cole aqui"
         android:textColor="#FFFFFF" android:textColorHint="#555555"
-        android:inputType="textPassword" android:layout_marginBottom="20dp"/>
+        android:inputType="textPassword" android:layout_marginBottom="16dp"/>
 
     <Button android:id="@+id/salvarButton" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:text="Salvar" android:layout_marginBottom="24dp"/>
+        android:layout_height="wrap_content" android:text="Salvar"
+        android:layout_marginBottom="20dp"/>
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Modo da Stephani:" android:textColor="#FFFFFF"
+        android:textSize="14sp" android:layout_marginBottom="8dp"/>
+
+    <RadioGroup android:id="@+id/modoGroup" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="vertical"
+        android:layout_marginBottom="16dp">
+
+        <RadioButton android:id="@+id/modoSerio" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="Serio (adulta, direta)"
+            android:textColor="#DDDDDD" android:buttonTint="#00E5B0"/>
+
+        <RadioButton android:id="@+id/modoEquilibrado" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="Equilibrado (padrao)"
+            android:textColor="#DDDDDD" android:buttonTint="#00E5B0"/>
+
+        <RadioButton android:id="@+id/modoDivertido" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="Divertido (zoeira total)"
+            android:textColor="#DDDDDD" android:buttonTint="#00E5B0"/>
+    </RadioGroup>
 
     <Button android:id="@+id/acessibilidadeButton" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:text="Ativar Acessibilidade" android:layout_marginBottom="12dp"/>
+        android:layout_height="wrap_content" android:text="Ativar Acessibilidade"
+        android:layout_marginBottom="12dp"/>
 
     <Button android:id="@+id/iniciarButton" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:text="Iniciar Kira"/>
+        android:layout_height="wrap_content" android:text="Iniciar Stephani"/>
 
 </LinearLayout>
+</ScrollView>
