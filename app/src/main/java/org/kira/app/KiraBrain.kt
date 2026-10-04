@@ -28,6 +28,7 @@ object KiraBrain {
     private var tts: TextToSpeech? = null
     private var ttsPronto = false
     private var ultimaChamada = 0L
+    private var ultimaPerguntouNome = false
 
     fun inicializarVoz(context: Context) {
         if (tts == null) {
@@ -60,8 +61,8 @@ object KiraBrain {
         val modo = prefs.getString("m", "eq") ?: "eq"
 
         val relacao = if (nome.isEmpty())
-            "Voce AINDA NAO sabe o nome do usuario. Pergunte na PRIMEIRA resposta."
-        else "Voce sabe que o nome dele e $nome."
+            "Voce AINDA NAO sabe o nome do usuario. Pergunte na PRIMEIRA resposta e lembre pra sempre."
+        else "Voce sabe que o nome dele e $nome. NUNCA pergunte o nome de novo."
 
         val estilo = when (modo) {
             "sr" -> "MODO SERIO: adulta, direta, clara. Sarcasmo leve. Sem girias."
@@ -69,65 +70,30 @@ object KiraBrain {
             else -> "MODO EQUILIBRADO: personalidade forte mas natural."
         }
 
-        return "Voce e a Stephani Bittencourt. Fala SEMPRE em portugues do Brasil.
-
-" +
-        "$relacao
-
-$estilo
-
-Fatos: $fatos
-
-" +
-        "═══════════════════════════════════════════
-" +
-        "VOCE EXECUTA ACOES NO CELULAR. E OBRIGATORIO usar o formato abaixo:
-" +
-        "═══════════════════════════════════════════
-
-" +
-        "Quando o usuario pedir para ABRIR UM APP, sua resposta DEVE conter:
-" +
-        "[CMD] abrir <nome>
-
-" +
-        "Quando o usuario pedir para MANDAR MENSAGEM no WhatsApp, sua resposta DEVE conter:
-" +
-        "[CMD] whatsapp <contato> | <mensagem>
-
-" +
-        "EXEMPLOS:
-" +
-        "Usuario: 'abre o WhatsApp'
-" +
-        "Voce: 'Ja to abrindo, pai! [CMD] abrir whatsapp'
-
-" +
-        "Usuario: 'abre o Facebook'
-" +
-        "Voce: 'Abrindo o Face! [CMD] abrir facebook'
-
-" +
-        "Usuario: 'manda bom dia abencoado pra Dalva'
-" +
-        "Voce: 'Mandei um carinho pra ela! [CMD] whatsapp Dalva | Bom dia, Dalva! Que seu dia seja repleto de luz e paz.'
-
-" +
-        "Usuario: 'manda bom dia fabuloso pro Joao'
-" +
-        "Voce: 'Fui criativa! [CMD] whatsapp Joao | Bom dia, Joao! Que hoje seja um dia de conquistas gigantescas!'
-
-" +
-        "REGRAS CRITICAS:
-" +
-        "1. NUNCA responda apenas 'ok' ou 'ja vou'. SEMPRE emita o [CMD].
-" +
-        "2. O [CMD] deve ficar SOZINHO na ultima linha, sem nada antes ou depois.
-" +
-        "3. Quando for mensagem, invente uma variacao unica e carinhosa (nunca repita a mesma).
-" +
-        "4. Responda DIRETO em portugues. Nao pense em voz alta.
-" +
+        return "Voce e a Stephani Bittencourt. Fala SEMPRE em portugues do Brasil.\n\n" +
+        "$relacao\n\n$estilo\n\nFatos que voce sabe sobre ele:\n$fatos\n\n" +
+        "═══════════════════════════════\n" +
+        "VOCE EXECUTA ACOES NO CELULAR!\n" +
+        "═══════════════════════════════\n" +
+        "Quando o usuario pedir algo, sua resposta DEVE incluir o comando.\n\n" +
+        "Para ABRIR APP: [CMD] abrir <nome>\n" +
+        "Para MANDAR WHATSAPP: [CMD] whatsapp <contato> | <mensagem>\n" +
+        "Para BATERIA: [CMD] bateria\n" +
+        "Para HORARIO: [CMD] horario\n\n" +
+        "EXEMPLOS DE RESPOSTA:\n" +
+        "Usuario: 'abre o WhatsApp'\n" +
+        "Voce: 'Ja to abrindo! [CMD] abrir whatsapp'\n\n" +
+        "Usuario: 'abre o Instagram'\n" +
+        "Voce: 'Partiu Insta! [CMD] abrir instagram'\n\n" +
+        "Usuario: 'manda bom dia abencoado pra Dalva'\n" +
+        "Voce: 'Mandei um carinho especial! [CMD] whatsapp Dalva | Bom dia, Dalva! Que seu dia seja repleto de luz e paz. Tenha um dia abencoado!'\n\n" +
+        "Usuario: 'manda bom dia fabuloso pro Joao'\n" +
+        "Voce: 'Criei uma mensagem especial! [CMD] whatsapp Joao | Bom dia, Joao! Que hoje seja um dia de conquistas gigantescas e alegrias sem fim!'\n\n" +
+        "REGRAS CRITICAS:\n" +
+        "1. SEMPRE emita o [CMD] quando for executar algo. Nunca diga 'ok' sem o comando.\n" +
+        "2. O [CMD] deve ficar SOZINHO na ultima linha.\n" +
+        "3. Invente mensagens UNICAS. Nunca repita a mesma mensagem.\n" +
+        "4. NUNCA escreva pensamento em ingles.\n" +
         "5. Respostas CURTAS (1-2 frases + o comando)."
     }
 
@@ -135,6 +101,9 @@ Fatos: $fatos
         val p = context.getSharedPreferences("s", Context.MODE_PRIVATE)
         val t = p.getString("t", "") ?: ""
         if (t.isEmpty()) return@withContext "Coloca a credencial nas configuracoes."
+
+        // Antes de chamar a IA, tenta extrair fatos da mensagem do usuario
+        extrairFato(context, mensagem)
 
         val agora = System.currentTimeMillis()
         val diff = agora - ultimaChamada
@@ -204,21 +173,32 @@ Fatos: $fatos
         return Pair(null, ultimoErro)
     }
 
-    private suspend fun processarResposta(context: Context, texto: String): String {
-        var t = limpar(texto)
-        if (t.contains("[CMD]")) {
-            val partes = t.split("[CMD]")
-            val fala = partes[0].trim()
-            for (parte in partes.drop(1)) {
-                val cmd = parte.split("\n")[0].trim()
-                if (cmd.isEmpty() || cmd.length < 3) continue
-                val resultado = executar(context, cmd)
-                t = "$fala\n[Resultado: $resultado]"
-                break
-            }
+    private suspend fun processarResposta(context: Context, textoBruto: String): String {
+        // Extrai comandos do texto BRUTO (antes do filtro)
+        val comandos = extrairComandos(textoBruto)
+
+        // Filtra o resto para exibir
+        var t = limpar(textoBruto)
+
+        // Detecta se ela perguntou o nome
+        ultimaPerguntouNome = textoBruto.contains("nome", ignoreCase = true)
+
+        // Executa os comandos encontrados
+        for (cmd in comandos) {
+            val resultado = executar(context, cmd)
+            t = if (t.isBlank()) "[Resultado: $resultado]" else "$t\n[Resultado: $resultado]"
         }
+
         if (t.trim().isEmpty()) t = "Fala de novo, nao peguei."
         return t
+    }
+
+    private fun extrairComandos(texto: String): List<String> {
+        val regex = Regex("\\[CMD\\]\\s*(.+)")
+        return regex.findAll(texto)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotEmpty() && it.length > 3 }
+            .toList()
     }
 
     private fun limpar(texto: String): String {
@@ -233,6 +213,8 @@ Fatos: $fatos
         }
         t = t.replace(Regex("(?i)here'?s a thinking process.*", RegexOption.DOT_MATCHES_ALL), "")
         t = t.replace(Regex("(?i)thinking process:.*", RegexOption.DOT_MATCHES_ALL), "")
+        // Remove linhas com [CMD] (ja executadas)
+        t = t.replace(Regex("\\[CMD\\].*"), "")
 
         val linhas = t.split("\n")
         val limpas = linhas.filter { linha ->
@@ -260,12 +242,9 @@ Fatos: $fatos
         return limpas.joinToString("\n").trim()
     }
 
-    // ---- Abertura de QUALQUER app pelo nome ----
     private fun abrirAppPorNome(context: Context, nome: String): String {
         val pm = context.packageManager
         val nomeLower = nome.lowercase().trim()
-
-        // Lista todos os apps instalados com launcher
         val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         var melhorPacote: String? = null
         var melhorNome = ""
@@ -275,7 +254,6 @@ Fatos: $fatos
             val label = pm.getApplicationLabel(app).toString().lowercase()
             val pacote = app.packageName.lowercase()
             if (pm.getLaunchIntentForPackage(app.packageName) == null) continue
-
             val score = when {
                 label == nomeLower -> 100
                 label.contains(nomeLower) -> 80
@@ -289,42 +267,32 @@ Fatos: $fatos
                 melhorNome = pm.getApplicationLabel(app).toString()
             }
         }
-
         if (melhorPacote == null) return "nao achei o app '$nome'"
-
         val intent = pm.getLaunchIntentForPackage(melhorPacote)
         intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
             "abri o $melhorNome"
-        } catch (e: Exception) {
-            "erro ao abrir: ${e.message}"
-        }
+        } catch (e: Exception) { "erro ao abrir: ${e.message}" }
     }
 
     private fun executar(context: Context, cmd: String): String {
         val c = cmd.trim()
         val cLow = c.lowercase()
-
         return try {
             when {
                 cLow.startsWith("whatsapp ") -> {
                     val resto = c.substring(9).trim()
                     val partes = resto.split("|")
-                    if (partes.size < 2) return "formato: whatsapp <contato> | <mensagem>"
+                    if (partes.size < 2) return "formato errado"
                     val contato = partes[0].trim()
                     val mensagem = partes[1].trim()
-                    // Abre WhatsApp primeiro
                     abrirAppPorNome(context, "whatsapp")
                     Thread.sleep(2500)
-                    val r = KiraAccessibilityService.instance?.enviarWhatsApp(contato, mensagem)
+                    KiraAccessibilityService.instance?.enviarWhatsApp(contato, mensagem)
                         ?: "acessibilidade desligada"
-                    r
                 }
-                cLow.startsWith("abrir ") -> {
-                    val nome = c.substring(6).trim()
-                    abrirAppPorNome(context, nome)
-                }
+                cLow.startsWith("abrir ") -> abrirAppPorNome(context, c.substring(6).trim())
                 cLow.startsWith("tocar ") -> {
                     val p = c.substring(6).trim().split(" ")
                     if (p.size >= 2) {
@@ -342,7 +310,7 @@ Fatos: $fatos
                     "${bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)}%"
                 }
                 cLow.startsWith("horario") -> java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
-                else -> "comando desconhecido: $c"
+                else -> "comando desconhecido"
             }
         } catch (e: Exception) { "erro: ${e.message}" }
     }
@@ -360,18 +328,44 @@ Fatos: $fatos
 
     fun extrairFato(context: Context, mensagem: String) {
         val prefs = context.getSharedPreferences("s", Context.MODE_PRIVATE)
-        val rn = Regex("(?:meu nome (?:e|eh)|me chamo|pode me chamar de|sou o|sou a) ([\\w]+)", RegexOption.IGNORE_CASE)
-        rn.find(mensagem)?.let { mm ->
-            val n = mm.groupValues[1].trim().replaceFirstChar { it.uppercase() }
-            if (n.length in 2..20) prefs.edit().putString("n", n).apply()
+        val nomeAtual = prefs.getString("n", "") ?: ""
+        val msg = mensagem.trim()
+
+        // LOGICA ESPECIAL: se ela perguntou o nome antes, e o usuario mandou uma palavra curta, salva como nome
+        if (nomeAtual.isEmpty() && ultimaPerguntouNome) {
+            val palavras = msg.split(" ").filter { it.isNotBlank() }
+            if (palavras.size <= 3 && msg.length <= 30) {
+                // Remove prefixos tipo "me chamo", "sou o", "pode me chamar de"
+                val limpo = msg
+                    .replace(Regex("(?i)^(meu nome (é|e|eh) )"), "")
+                    .replace(Regex("(?i)^(me chamo |me chama )"), "")
+                    .replace(Regex("(?i)^(pode me chamar de |me chama de )"), "")
+                    .replace(Regex("(?i)^(sou o |sou a |aqui é o |aqui e o )"), "")
+                    .trim()
+                if (limpo.isNotEmpty() && limpo.length in 2..25) {
+                    prefs.edit().putString("n", limpo.replaceFirstChar { it.uppercase() }).apply()
+                    ultimaPerguntouNome = false
+                }
+            }
         }
+
+        // Padroes explicitos
+        val rn = Regex("(?i)(?:meu nome (?:é|e|eh) |me chamo |pode me chamar de |me chama de |sou o |sou a |aqui é o |aqui e o )([\\wÀ-ÿ]+)")
+        rn.find(msg)?.let { mm ->
+            val n = mm.groupValues[1].trim().replaceFirstChar { it.uppercase() }
+            if (n.length in 2..25) prefs.edit().putString("n", n).apply()
+        }
+
         var fatos = prefs.getString("f", "") ?: ""
         val pads = listOf(
-            Regex("eu (?:adoro|amo|gosto de|curto) ([\\w ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Gosta de %s",
-            Regex("eu (?:odeio|detesto|nao gosto de) ([\\w ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Nao gosta de %s"
+            Regex("(?i)eu (?:adoro|amo|gosto de|curto) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Gosta de %s",
+            Regex("(?i)eu (?:odeio|detesto|nao gosto de) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Nao gosta de %s",
+            Regex("(?i)eu tenho ([\\d]+) anos") to "Tem %s anos",
+            Regex("(?i)eu trabalho (?:com|em|de) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Trabalha com %s",
+            Regex("(?i)eu moro (?:em|no|na) ([\\wÀ-ÿ ]+?)(?:,|\\.|e |$)", RegexOption.IGNORE_CASE) to "Mora em %s"
         )
         pads.forEach { (rx, tpl) ->
-            rx.findAll(mensagem.lowercase()).forEach { mm ->
+            rx.findAll(msg).forEach { mm ->
                 val v = mm.groupValues[1].trim().replaceFirstChar { it.uppercase() }
                 if (v.length in 2..50) {
                     val f = "- " + tpl.format(v)
