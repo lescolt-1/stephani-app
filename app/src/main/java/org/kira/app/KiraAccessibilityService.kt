@@ -82,25 +82,27 @@ class KiraAccessibilityService : AccessibilityService() {
     // ---- API publica para WhatsApp ----
     fun enviarWhatsApp(contato: String, mensagem: String): String {
         try {
-            // 1. Clica na lupa / busca do WhatsApp
-            val busca = acharPorViewId("com.whatsapp:id/menuitem_search")
+            // Tenta 3 IDs diferentes de busca (versao nova e antiga do WhatsApp)
+            var busca = acharPorViewId("com.whatsapp:id/menuitem_search")
                 ?: acharPorViewId("com.whatsapp:id/search")
+                ?: acharPorViewId("com.whatsapp.w4b:id/menuitem_search")
+            if (busca == null) {
+                busca = acharPorTexto("Pesquisar")
+            }
+            if (busca == null) return "Nao achei a lupa do WhatsApp. Abre o WhatsApp na tela inicial (nao numa conversa) e tenta de novo."
             clicarNo(busca)
-            Thread.sleep(1500)
+            Thread.sleep(1800)
 
-            // 2. Digita o nome do contato
             val campo = acharPorViewId("com.whatsapp:id/search_input")
                 ?: acharPorViewId("com.whatsapp:id/search_src_text")
+                ?: acharPorViewId("com.whatsapp.w4b:id/search_input")
                 ?: acharPorTexto("Pesquisar")
-            if (campo == null) return "nao achei a busca do WhatsApp"
-
+            if (campo == null) return "Nao achei o campo de busca."
             clicarNo(campo)
             Thread.sleep(500)
             digitarNo(campo, contato)
             Thread.sleep(2500)
 
-            // 3. Clica no primeiro resultado (varre a arvore por clique com o nome)
-            var raiz = rootInActiveWindow
             var achouContato: AccessibilityNodeInfo? = null
             fun procurar(node: AccessibilityNodeInfo?) {
                 if (achouContato != null) return
@@ -112,35 +114,30 @@ class KiraAccessibilityService : AccessibilityService() {
                 }
                 for (i in 0 until node.childCount) procurar(node.getChild(i))
             }
-            procurar(raiz)
+            procurar(rootInActiveWindow)
 
-            if (achouContato == null) return "contato '$contato' nao encontrado"
+            if (achouContato == null) return "Nao achei o contato '$contato'."
             clicarNo(achouContato)
             Thread.sleep(2500)
 
-            // 4. Digita a mensagem
             val campoMsg = acharPorViewId("com.whatsapp:id/entry")
                 ?: acharPorViewId("com.whatsapp:id/message_input")
-            if (campoMsg == null) return "nao achei o campo de mensagem"
-
+                ?: acharPorViewId("com.whatsapp.w4b:id/entry")
+            if (campoMsg == null) return "Nao achei o campo de mensagem."
             clicarNo(campoMsg)
             Thread.sleep(500)
             digitarNo(campoMsg, mensagem)
             Thread.sleep(800)
 
-            // 5. Clica em enviar
             val enviar = acharPorViewId("com.whatsapp:id/send")
+                ?: acharPorViewId("com.whatsapp.w4b:id/send")
             if (enviar != null) {
                 clicarNo(enviar)
-                return "mensagem enviada pra $contato"
+                return "Mensagem enviada pra $contato!"
             }
-
-            // Fallback: aperta enter
-            val args = android.os.Bundle()
-            args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_MOVEMENT_GRANULARITY_INT, 1)
-            return "mensagem escrita mas nao enviei"
+            return "Escrevi a mensagem mas nao consegui enviar."
         } catch (e: Exception) {
-            return "erro WhatsApp: ${e.message}"
+            return "Erro WhatsApp: ${e.message}"
         }
     }
 }

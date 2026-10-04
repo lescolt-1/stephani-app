@@ -131,8 +131,14 @@ object KiraBrain {
                 val arr = JSONArray()
                 arr.put(JSONObject().apply { put("role", "system"); put("content", system) })
                 historico.forEach { (role, texto) ->
-                    val cortado = if (texto.length > 500) texto.substring(0, 500) else texto
-                    arr.put(JSONObject().apply { put("role", role); put("content", cortado) })
+                    // Sanitiza: remove quebras de linha, tabs e corta em 400
+                    var limpo = texto.replace("
+", " ").replace("", " ").replace("	", " ")
+                    limpo = limpo.replace(Regex("\s+"), " ").trim()
+                    if (limpo.length > 400) limpo = limpo.substring(0, 400)
+                    if (limpo.isNotEmpty()) {
+                        arr.put(JSONObject().apply { put("role", role); put("content", limpo) })
+                    }
                 }
 
                 val payload = JSONObject().apply {
@@ -155,6 +161,11 @@ object KiraBrain {
 
                 if (resp.code == 429) { Thread.sleep(5000); continue }
                 if (resp.code == 503 || resp.code == 502) { Thread.sleep(3000); continue }
+                if (resp.code == 400) {
+                    // Historico problematico: limpa e tenta de novo com mensagem so
+                    historico.clear()
+                    continue
+                }
                 if (!resp.isSuccessful) continue
 
                 val json = JSONObject(corpo)
