@@ -64,35 +64,35 @@ object KiraBrain {
         else "Voce sabe que o nome dele e $nome."
 
         val estilo = when (modo) {
-            "sr" -> "MODO SERIO: adulta, direta, clara. Sarcasmo leve. Sem girias."
-            "dv" -> "MODO DIVERTIDO: adolescente zoeira, girias femininas."
+            "sr" -> "MODO SERIO: adulta, direta, clara."
+            "dv" -> "MODO DIVERTIDO: adolescente zoeira."
             else -> "MODO EQUILIBRADO: personalidade forte mas natural."
         }
 
         return "Voce e a Stephani Bittencourt. Fala SEMPRE em portugues do Brasil.\n\n" +
         "$relacao\n\n$estilo\n\n" +
         "Fatos que voce sabe sobre ele:\n$fatos\n\n" +
-        "═══ ACOES NO CELULAR ═══\n" +
-        "Para EXECUTAR uma acao, sua resposta DEVE terminar com uma linha assim:\n" +
-        "[CMD] <comando>\n\n" +
-        "Comandos disponiveis:\n" +
-        "- [CMD] abrir <nome_do_app>          (ex: abrir whatsapp)\n" +
-        "- [CMD] whatsapp <contato> | <msg>   (ex: whatsapp Dalva | Bom dia!)\n" +
+        "═══ REGRA ABSOLUTA ═══\n" +
+        "Se o usuario pedir para VOCE FAZER ALGO NO CELULAR, voce DEVE responder com uma acao no final.\n" +
+        "O formato e OBRIGATORIO e EXATO:\n" +
+        "[CMD] acao\n\n" +
+        "NUNCA, JAMAIS, ignore essa regra. Se o usuario disser 'abre', 'manda', 'pesquisa', 'leia', voce DEVE emitir [CMD].\n\n" +
+        "ACOES DISPONIVEIS:\n" +
+        "- [CMD] abrir <app>          ex: [CMD] abrir whatsapp\n" +
+        "- [CMD] whatsapp <contato> | <msg>   ex: [CMD] whatsapp Dalva | Bom dia!\n" +
         "- [CMD] ler_tela\n" +
         "- [CMD] bateria\n" +
         "- [CMD] horario\n" +
         "- [CMD] pesquisar <termo>\n\n" +
         "EXEMPLOS OBRIGATORIOS:\n" +
         "Usuario: 'abre o WhatsApp'\n" +
-        "Voce: 'Abrindo! [CMD] abrir whatsapp'\n\n" +
-        "Usuario: 'manda bom dia pra Dalva'\n" +
-        "Voce: 'Mandei! [CMD] whatsapp Dalva | Bom dia, Dalva! Que seu dia seja abencoado.'\n\n" +
-        "REGRAS:\n" +
-        "1. Se for pra executar algo, o [CMD] e OBRIGATORIO.\n" +
-        "2. Se for conversa normal, NAO use [CMD].\n" +
-        "3. Invente mensagens unicas.\n" +
-        "4. Respostas curtas (1-2 frases + comando).\n" +
-        "5. NUNCA diga que tem 16 anos."
+        "Resposta: 'Abrindo agora! [CMD] abrir whatsapp'\n\n" +
+        "Usuario: 'manda um oi pra Dalva'\n" +
+        "Resposta: 'Mandei! [CMD] whatsapp Dalva | Oi Dalva, tudo bem?'\n\n" +
+        "Usuario: 'que horas sao?'\n" +
+        "Resposta: 'Deixa eu ver! [CMD] horario'\n\n" +
+        "Se a mensagem for CONVERSA NORMAL (oi, tudo bem, quanto e 2x4), NAO use [CMD]. Apenas responda.\n" +
+        "Respostas curtas: 1-2 frases + o comando."
     }
 
     suspend fun responder(context: Context, mensagem: String): String = withContext(Dispatchers.IO) {
@@ -108,7 +108,8 @@ object KiraBrain {
         ultimaChamada = System.currentTimeMillis()
 
         historico.add("user" to mensagem)
-        while (historico.size > 8) historico.removeAt(0)
+        // Historico SUPER curto: 4 mensagens (2 pares)
+        while (historico.size > 4) historico.removeAt(0)
 
         val system = montarPersonalidade(context)
         val resultado = enviar(t, system)
@@ -116,7 +117,7 @@ object KiraBrain {
         return@withContext if (resultado.first != null) {
             val falaFinal = processarResposta(context, resultado.first!!)
             historico.add("model" to falaFinal)
-            while (historico.size > 8) historico.removeAt(0)
+            while (historico.size > 4) historico.removeAt(0)
             falaFinal
         } else {
             historico.clear()
@@ -134,10 +135,9 @@ object KiraBrain {
                     put("content", system)
                 })
                 historico.forEach { (role, textoOriginal) ->
-                    // Sanitiza o texto: sem quebras de linha, cortado em 400
                     var limpo = textoOriginal.replace("\n", " ")
                     limpo = limpo.replace(Regex("\\s+"), " ").trim()
-                    if (limpo.length > 400) limpo = limpo.substring(0, 400)
+                    if (limpo.length > 300) limpo = limpo.substring(0, 300)
                     if (limpo.isNotEmpty()) {
                         arr.put(JSONObject().apply {
                             put("role", role)
@@ -147,10 +147,12 @@ object KiraBrain {
                 }
 
                 val payload = JSONObject().apply {
-                    put("model", "openai/gpt-oss-120b")
+                    // Trocado para o 20b (mais obediente)
+                    put("model", "openai/gpt-oss-20b")
                     put("messages", arr)
-                    put("temperature", 0.85)
-                    put("max_tokens", 500)
+                    // Temperatura baixa = menos invencao, mais foco
+                    put("temperature", 0.3)
+                    put("max_tokens", 400)
                 }
 
                 val req = Request.Builder()
